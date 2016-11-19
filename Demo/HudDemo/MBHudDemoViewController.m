@@ -3,12 +3,12 @@
 //  HudDemo
 //
 //  Created by Matej Bukovinski on 30.9.09.
-//  Copyright bukovinski.com 2009-2015. All rights reserved.
+//  Copyright © 2009-2016 Matej Bukovinski. All rights reserved.
 //
 
 #import "MBHudDemoViewController.h"
 #import "MBProgressHUD.h"
-
+#import <QuartzCore/QuartzCore.h>
 
 @interface MBExample : NSObject
 
@@ -33,7 +33,8 @@
 @interface MBHudDemoViewController () <NSURLSessionDelegate>
 
 @property (nonatomic, strong) NSArray<NSArray<MBExample *> *> *examples;
-@property (nonatomic, assign) BOOL canceled;
+// Atomic, because it may be cancelled from main thread, flag is read on a background thread
+@property (atomic, assign) BOOL canceled;
 
 @end
 
@@ -57,8 +58,9 @@
         [MBExample exampleWithTitle:@"Mode switching" selector:@selector(modeSwitchingExample)]],
       @[[MBExample exampleWithTitle:@"On window" selector:@selector(indeterminateExample)],
         [MBExample exampleWithTitle:@"NSURLSession" selector:@selector(networkingExample)],
-        [MBExample exampleWithTitle:@"Dim background" selector:@selector(indeterminateExample)],
-        [MBExample exampleWithTitle:@"Colored" selector:@selector(indeterminateExample)]]
+        [MBExample exampleWithTitle:@"Determinate with NSProgress" selector:@selector(determinateNSProgressExample)],
+        [MBExample exampleWithTitle:@"Dim background" selector:@selector(dimBackgroundExample)],
+        [MBExample exampleWithTitle:@"Colored" selector:@selector(colorExample)]]
       ];
 }
 
@@ -143,6 +145,30 @@
     });
 }
 
+- (void)determinateNSProgressExample {
+	MBProgressHUD *hud = [MBProgressHUD showHUDAddedTo:self.navigationController.view animated:YES];
+	
+	// Set the determinate mode to show task progress.
+	hud.mode = MBProgressHUDModeDeterminate;
+	hud.label.text = NSLocalizedString(@"Loading...", @"HUD loading title");
+
+	// Set up NSProgress
+	NSProgress *progressObject = [NSProgress progressWithTotalUnitCount:100];
+	hud.progressObject = progressObject;
+
+	// Configure a cancel button.
+	[hud.button setTitle:NSLocalizedString(@"Cancel", @"HUD cancel button title") forState:UIControlStateNormal];
+	[hud.button addTarget:progressObject action:@selector(cancel) forControlEvents:UIControlEventTouchUpInside];
+
+	dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+		// Do something useful in the background and update the HUD periodically.
+		[self doSomeWorkWithProgressObject:progressObject];
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[hud hideAnimated:YES];
+		});
+	});
+}
+
 - (void)annularDeterminateExample {
     MBProgressHUD *hud = [MBProgressHUD showHUDAddedTo:self.navigationController.view animated:YES];
 
@@ -194,7 +220,7 @@
 - (void)textExample {
     MBProgressHUD *hud = [MBProgressHUD showHUDAddedTo:self.navigationController.view animated:YES];
 
-    // Set the annular determinate mode to show task progress.
+    // Set the text mode to show only text.
     hud.mode = MBProgressHUDModeText;
     hud.label.text = NSLocalizedString(@"Message here!", @"HUD message title");
     // Move to bottm center.
@@ -251,11 +277,51 @@
     [self doSomeNetworkWorkWithProgress];
 }
 
+- (void)dimBackgroundExample {
+	MBProgressHUD *hud = [MBProgressHUD showHUDAddedTo:self.navigationController.view animated:YES];
+
+	// Change the background view style and color.
+	hud.backgroundView.style = MBProgressHUDBackgroundStyleSolidColor;
+	hud.backgroundView.color = [UIColor colorWithWhite:0.f alpha:0.1f];
+
+	dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+		[self doSomeWork];
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[hud hideAnimated:YES];
+		});
+	});
+}
+
+- (void)colorExample {
+	MBProgressHUD *hud = [MBProgressHUD showHUDAddedTo:self.navigationController.view animated:YES];
+	hud.contentColor = [UIColor colorWithRed:0.f green:0.6f blue:0.7f alpha:1.f];
+
+	// Set the label text.
+	hud.label.text = NSLocalizedString(@"Loading...", @"HUD loading title");
+
+	dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+		[self doSomeWork];
+		dispatch_async(dispatch_get_main_queue(), ^{
+			[hud hideAnimated:YES];
+		});
+	});
+}
+
 #pragma mark - Tasks
 
 - (void)doSomeWork {
     // Simulate by just waiting.
     sleep(3.);
+}
+
+- (void)doSomeWorkWithProgressObject:(NSProgress *)progressObject {
+	// This just increases the progress indicator in a loop.
+	while (progressObject.fractionCompleted < 1.0f) {
+		if (progressObject.isCancelled) break;
+		[progressObject becomeCurrentWithPendingUnitCount:1];
+		[progressObject resignCurrent];
+		usleep(50000);
+	}
 }
 
 - (void)doSomeWorkWithProgress {
